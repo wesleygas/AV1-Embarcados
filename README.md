@@ -1,3 +1,7 @@
+![](https://img.clasf.com.br/2016/11/24/Ciclocomputador-GPS-Garmin-Edge-200-Novo-20161124214433.jpg)
+
+----------------------
+
 - Atualize o `SAME70-examples`
     - vai ter um novo exemplo: `Perifericos-uc/RTT`
 - Fork no github o repositório `github.com/insper/AV1-Embarcados`

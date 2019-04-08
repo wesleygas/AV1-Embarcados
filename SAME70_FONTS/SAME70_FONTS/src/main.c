@@ -302,8 +302,13 @@ void font_draw_text(tFont *font, const char *text, int x, int y, int spacing) {
 	}	
 }
 
-void draw_screen() {
+void draw_screen_black() {
 	ili9488_set_foreground_color(COLOR_CONVERT(COLOR_BLACK));
+	ili9488_draw_filled_rectangle(0, 0, ILI9488_LCD_WIDTH-1, ILI9488_LCD_HEIGHT-1);
+}
+
+void draw_screen_white() {
+	ili9488_set_foreground_color(COLOR_CONVERT(COLOR_WHITE));
 	ili9488_draw_filled_rectangle(0, 0, ILI9488_LCD_WIDTH-1, ILI9488_LCD_HEIGHT-1);
 }
 
@@ -325,7 +330,8 @@ int main(void) {
 	char time_str[9];
 	rtt_reconfigure();
 	float max_vel = 0;
-	int idle_sec = 20;
+	int idle_sec = 0;
+	int last_vel = 0;
 	while(1) {
 		if(update_vel_alarm){
 			angular_vel = (float)2*PI*roda_voltas/4;
@@ -340,22 +346,32 @@ int main(void) {
 			}else{
 				idle_sec = 0;
 			}
-			if(idle_sec == 20){
-				draw_screen();
+			if(idle_sec >= 20){
+				draw_screen_black();
 			}else{
+				draw_screen_white();
 				//Total distance
 				sprintf(buff_str,"%.2f m",total_dist);
-				font_draw_text(&calibri_36, buff_str, 50, 150, 1);
+				font_draw_text(&calibri_36, buff_str, 50, 250, 1);
 				//Velocity
 				sprintf(buff_str,"Maxv: %.2f m",max_vel);
 				font_draw_text(&calibri_36, buff_str, 50, 100, 1);
 				sprintf(buff_str,"%.2f km/h",inst_vel);
 				font_draw_text(&calibri_36, buff_str, 50, 50, 1);
+				
+				if(last_vel < inst_vel){
+					font_draw_text(&calibri_36, ">", 100, 150,1);
+				}else{
+					font_draw_text(&calibri_36, "<", 100, 150,1);
+				}
+				last_vel = inst_vel;
 			}
 			rtt_reconfigure();
 			update_vel_alarm = 0;
 			
 		}if(update_time){
+			
+			if(idle_sec < 20){
 			if(is_paused){
 				font_draw_text(&calibri_36, "PAUSA", 50, 200, 2);
 				rtc_set_time(RTC, pause_time.hora, pause_time.minuto, pause_time.segundo); //Foi mal gente, n tinha tempo pra fazer algo menos porco eheheh
@@ -365,12 +381,12 @@ int main(void) {
 				rtc_get_time(RTC,&curr_time.hora, &curr_time.minuto, &curr_time.segundo);
 				rtc_get_time(RTC,&pause_time.hora, &pause_time.minuto, &pause_time.segundo);
 			}
-			
 			//timeToString(time_str,curr_time);
 			//font_draw_text(&calibri_36, time_str, 50, 250, 1);
 			calcTimeDiff(initial_time,curr_time, &time_diff);
 			timeToString(time_str,time_diff);
 			font_draw_text(&calibri_36, time_str, 50, 300, 1);
+			}
 		}
 		pmc_sleep(SLEEPMGR_SLEEP_WFI);
 	}

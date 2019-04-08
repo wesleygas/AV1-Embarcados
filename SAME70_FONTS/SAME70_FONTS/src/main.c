@@ -21,7 +21,8 @@ struct ili9488_opt_t g_ili9488_display_opt;
 #define HOUR	11
 #define MINUTE	59
 #define SECOND	50
-
+#define wheel_diameter 0.65
+#define PI		3.141592
 typedef struct Horario{
 	int hora;
 	int minuto;
@@ -136,14 +137,16 @@ void io_init(void){
 	
 	pio_configure(LED_PIO, PIO_OUTPUT_0, LED_MASK, PIO_DEFAULT);
 	
-	pio_handler_set(BUT1_PIO,ID_PIOD,BUT1_MASK,PIO_IT_FALL_EDGE, magsense_callback);
+	//pio_handler_set(BUT1_PIO,ID_PIOD,BUT1_MASK,PIO_IT_FALL_EDGE, magsense_callback);
+	pio_handler_set(BUT3_PIO,ID_PIOA,BUT3_MASK,PIO_IT_FALL_EDGE, magsense_callback);
 	// Ativa interrupção no hardware
-	pio_enable_interrupt(PIOD, BUT1_MASK);
+	//pio_enable_interrupt(PIOD, BUT_MASK);
+	pio_enable_interrupt(PIOA, BUT3_MASK);
 
 	// Configura NVIC para receber interrupcoes do PIO do botao
 	// com prioridade 4 (quanto mais próximo de 0 maior)
-	NVIC_EnableIRQ(ID_PIOD);
-	NVIC_SetPriority(ID_PIOD, 3); // Prioridade 4
+	NVIC_EnableIRQ(ID_PIOA);
+	NVIC_SetPriority(ID_PIOA, 3); // Prioridade 4
 }
 
 static void RTT_init(uint16_t pllPreScale, uint32_t IrqNPulses)
@@ -221,7 +224,7 @@ void RTC_init(){
 	/* Configure RTC interrupts */
 	NVIC_DisableIRQ(RTC_IRQn);
 	NVIC_ClearPendingIRQ(RTC_IRQn);
-	NVIC_SetPriority(RTC_IRQn, 4);
+	NVIC_SetPriority(RTC_IRQn, 2);
 	NVIC_EnableIRQ(RTC_IRQn);
 
 	/* Ativa interrupcao via alarme */
@@ -257,6 +260,25 @@ void timeToString(char *str, Horario tempo){
 	
 }
 
+
+/*
+* Calculate time difference: est_finish - curr_time = eta
+*/
+void calcTimeDiff(Horario curr_time, Horario est_finish, Horario *eta){
+	if(curr_time.segundo > est_finish.segundo){
+		est_finish.minuto --;
+		est_finish.segundo += 60;
+	}
+	eta->segundo = est_finish.segundo - curr_time.segundo;
+	
+	if(curr_time.minuto > est_finish.minuto){
+		est_finish.hora --;
+		est_finish.minuto += 60;
+	}
+	eta->minuto = est_finish.minuto - curr_time.minuto;
+	eta->hora = est_finish.hora - curr_time.hora;
+}
+
 void font_draw_text(tFont *font, const char *text, int x, int y, int spacing) {
 	char *p = text;
 	while(*p != NULL) {
@@ -279,6 +301,10 @@ int main(void) {
 	RTC_init();
 	io_init();
 	Horario curr_time;
+	Horario initial_time;
+	Horario time_diff;
+	rtc_get_time(RTC,&initial_time.hora, &initial_time.minuto, &initial_time.segundo);
+	float angular_vel = 0;
 	float inst_vel = 0;
 	float total_dist = 0;
 	char buff_str[30];
@@ -288,17 +314,21 @@ int main(void) {
 	//font_draw_text(&arial_72, "102456", 50, 200, 2);
 	while(1) {
 		if(update_vel_alarm){
-			inst_vel = (float) roda_voltas/4;
-			total_dist += roda_voltas*1;
+			angular_vel = (float)2*PI*roda_voltas/4;
+			inst_vel = angular_vel*wheel_diameter*3.6;
+			total_dist += roda_voltas*2*PI*wheel_diameter;
 			roda_voltas = 0;
-			sprintf(buff_str,"%d %.2f",roda_voltas, inst_vel);
+			sprintf(buff_str,"%.2f %.2f",total_dist, inst_vel);
 			font_draw_text(&calibri_36, buff_str, 50, 150, 1);
 			rtt_reconfigure();
 			update_vel_alarm = 0;
 		}if(update_time){
 			rtc_get_time(RTC,&curr_time.hora, &curr_time.minuto, &curr_time.segundo);
-			timeToString(time_str,curr_time);
-			font_draw_text(&calibri_36, time_str, 50, 250, 1);
+			//timeToString(time_str,curr_time);
+			//font_draw_text(&calibri_36, time_str, 50, 250, 1);
+			calcTimeDiff(initial_time,curr_time, &time_diff);
+			timeToString(time_str,time_diff);
+			font_draw_text(&calibri_36, time_str, 50, 300, 1);
 		}
 	}
 }

@@ -1,0 +1,4 @@
+*.atsln
+*.xml
+Debug/
+*.vs

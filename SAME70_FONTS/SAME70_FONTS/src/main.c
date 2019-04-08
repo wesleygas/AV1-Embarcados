@@ -21,7 +21,7 @@ struct ili9488_opt_t g_ili9488_display_opt;
 #define HOUR	11
 #define MINUTE	59
 #define SECOND	50
-#define wheel_diameter 0.65
+#define wheel_raio 0.325
 #define PI		3.141592
 typedef struct Horario{
 	int hora;
@@ -54,7 +54,8 @@ void pin_toggle(Pio *pio, uint32_t mask);
 //Var Globais
 volatile int roda_voltas = 0;
 volatile int update_vel_alarm = 1;
-volatile int update_time = 0;
+volatile int update_time = 1;
+volatile int is_paused = 1;
 
 void RTT_Handler(void)
 {
@@ -121,8 +122,14 @@ void pin_toggle(Pio *pio, uint32_t mask){
 }
 
 void magsense_callback(void){
-	roda_voltas++;
-	pin_toggle(LED_PIO,LED_MASK);
+	if(!is_paused){
+		roda_voltas++;
+		pin_toggle(LED_PIO,LED_MASK);
+	}
+}
+
+void pause_callback(void){
+	is_paused = !is_paused;
 }
 
 void io_init(void){
@@ -137,16 +144,18 @@ void io_init(void){
 	
 	pio_configure(LED_PIO, PIO_OUTPUT_0, LED_MASK, PIO_DEFAULT);
 	
-	//pio_handler_set(BUT1_PIO,ID_PIOD,BUT1_MASK,PIO_IT_FALL_EDGE, magsense_callback);
+	pio_handler_set(BUT1_PIO,ID_PIOD,BUT1_MASK,PIO_IT_FALL_EDGE, pause_callback);
 	pio_handler_set(BUT3_PIO,ID_PIOA,BUT3_MASK,PIO_IT_FALL_EDGE, magsense_callback);
 	// Ativa interrupção no hardware
-	//pio_enable_interrupt(PIOD, BUT_MASK);
+	pio_enable_interrupt(PIOD, BUT1_MASK);
 	pio_enable_interrupt(PIOA, BUT3_MASK);
 
 	// Configura NVIC para receber interrupcoes do PIO do botao
 	// com prioridade 4 (quanto mais próximo de 0 maior)
 	NVIC_EnableIRQ(ID_PIOA);
+	NVIC_EnableIRQ(ID_PIOD);
 	NVIC_SetPriority(ID_PIOA, 3); // Prioridade 4
+	NVIC_SetPriority(ID_PIOD, 1);
 }
 
 static void RTT_init(uint16_t pllPreScale, uint32_t IrqNPulses)
@@ -293,6 +302,10 @@ void font_draw_text(tFont *font, const char *text, int x, int y, int spacing) {
 	}	
 }
 
+void draw_screen() {
+	ili9488_set_foreground_color(COLOR_CONVERT(COLOR_BLACK));
+	ili9488_draw_filled_rectangle(0, 0, ILI9488_LCD_WIDTH-1, ILI9488_LCD_HEIGHT-1);
+}
 
 int main(void) {
 	board_init();
@@ -303,32 +316,62 @@ int main(void) {
 	Horario curr_time;
 	Horario initial_time;
 	Horario time_diff;
+	Horario pause_time;
 	rtc_get_time(RTC,&initial_time.hora, &initial_time.minuto, &initial_time.segundo);
 	float angular_vel = 0;
 	float inst_vel = 0;
 	float total_dist = 0;
 	char buff_str[30];
 	char time_str[9];
-	//font_draw_text(&sourcecodepro_28, "OIMUNDO", 50, 50, 1);
-	//font_draw_text(&calibri_36, "Oi Mundo! #$!@", 50, 100, 1);
-	//font_draw_text(&arial_72, "102456", 50, 200, 2);
+	rtt_reconfigure();
+	float max_vel = 0;
+	int idle_sec = 20;
 	while(1) {
 		if(update_vel_alarm){
 			angular_vel = (float)2*PI*roda_voltas/4;
-			inst_vel = angular_vel*wheel_diameter*3.6;
-			total_dist += roda_voltas*2*PI*wheel_diameter;
+			inst_vel = angular_vel*wheel_raio*3.6;
+			total_dist += roda_voltas*2*PI*wheel_raio;
 			roda_voltas = 0;
-			sprintf(buff_str,"%.2f %.2f",total_dist, inst_vel);
-			font_draw_text(&calibri_36, buff_str, 50, 150, 1);
+			if(inst_vel > max_vel){
+				max_vel = inst_vel;
+			}
+			if(inst_vel < 0.1){
+				idle_sec+= 4;
+			}else{
+				idle_sec = 0;
+			}
+			if(idle_sec == 20){
+				draw_screen();
+			}else{
+				//Total distance
+				sprintf(buff_str,"%.2f m",total_dist);
+				font_draw_text(&calibri_36, buff_str, 50, 150, 1);
+				//Velocity
+				sprintf(buff_str,"Maxv: %.2f m",max_vel);
+				font_draw_text(&calibri_36, buff_str, 50, 100, 1);
+				sprintf(buff_str,"%.2f km/h",inst_vel);
+				font_draw_text(&calibri_36, buff_str, 50, 50, 1);
+			}
 			rtt_reconfigure();
 			update_vel_alarm = 0;
+			
 		}if(update_time){
-			rtc_get_time(RTC,&curr_time.hora, &curr_time.minuto, &curr_time.segundo);
+			if(is_paused){
+				font_draw_text(&calibri_36, "PAUSA", 50, 200, 2);
+				rtc_set_time(RTC, pause_time.hora, pause_time.minuto, pause_time.segundo); //Foi mal gente, n tinha tempo pra fazer algo menos porco eheheh
+				}else{
+				ili9488_set_foreground_color(COLOR_CONVERT(COLOR_WHITE));
+				ili9488_draw_filled_rectangle(50,200,50+200,200+36);
+				rtc_get_time(RTC,&curr_time.hora, &curr_time.minuto, &curr_time.segundo);
+				rtc_get_time(RTC,&pause_time.hora, &pause_time.minuto, &pause_time.segundo);
+			}
+			
 			//timeToString(time_str,curr_time);
 			//font_draw_text(&calibri_36, time_str, 50, 250, 1);
 			calcTimeDiff(initial_time,curr_time, &time_diff);
 			timeToString(time_str,time_diff);
 			font_draw_text(&calibri_36, time_str, 50, 300, 1);
 		}
+		pmc_sleep(SLEEPMGR_SLEEP_WFI);
 	}
 }
